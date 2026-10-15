@@ -1,17 +1,29 @@
 // Run the hal CLI (compiled for wasm32-wasip1) in the browser.
+//
+// The shim is imported by its bare npm name so bundlers resolve it from
+// node_modules; plain pages map it to a CDN with an import map (see index.html).
 import {
 	WASI,
 	File,
 	OpenFile,
 	ConsoleStdout,
-} from "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.4.2/dist/index.js";
+} from "@bjorn3/browser_wasi_shim";
 
+// Resolved relative to this module, not the page, so it works from any route.
+// Bundlers like Vite recognize this pattern and emit hal.wasm as an asset.
+let wasmUrl = new URL("./hal.wasm", import.meta.url);
 let modulePromise = null;
 
+/// Load hal.wasm from a different URL. Call before the first runHal().
+export function setWasmUrl(url) {
+	wasmUrl = url;
+	modulePromise = null;
+}
+
 /// Compile hal.wasm once; every run instantiates it afresh.
-function loadModule(url = "hal.wasm") {
+function loadModule() {
 	if (!modulePromise) {
-		modulePromise = WebAssembly.compileStreaming(fetch(url));
+		modulePromise = WebAssembly.compileStreaming(fetch(wasmUrl));
 	}
 	return modulePromise;
 }
