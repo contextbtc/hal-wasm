@@ -1,0 +1,39 @@
+[package]
+name = "hal-wasm"
+version = "0.1.0"
+license = "CC0-1.0"
+description = "The hal Bitcoin CLI built for WebAssembly (WASI) to run in the browser"
+edition = "2018"
+publish = false
+
+# The command implementations are compiled straight from the hal submodule
+# (see src/main.rs); this crate only replaces hal's binary entry point, which
+# relies on process spawning for external subcommands.
+[[bin]]
+name = "hal"
+path = "src/main.rs"
+
+# Keep this standalone while it lives inside the hal repository.
+[workspace]
+
+# Keep these in line with submodules/hal/Cargo.toml so they unify with hal's own dependencies.
+[dependencies]
+hal = { path = "submodules/hal", default-features = false }
+
+bitcoin = { version = "0.32.5", features = [ "std", "serde", "rand", "rand-std" ] }
+secp256k1 = { version = "0.29", features = [ "recovery" ] }
+bip39 = { version = "2.1.0", features = [ "all-languages" ] }
+lightning-invoice = { version = "0.33.2", features = [ "std" ] }
+miniscript = { version = "12.3.0", features = ["compiler"] }
+ark-lib = "0.1.0-beta.8"
+
+hex = "0.3.2"
+lazy_static = "1.4"
+serde = { version = "1.0.84", features = [ "derive" ] }
+serde_json = "1.0.34"
+serde_yaml = "0.8.8"
+
+base64-compat = "1.0.0"
+clap = "=2.33.3"
+fern = "0.5.6"
+log = "0.4.5"

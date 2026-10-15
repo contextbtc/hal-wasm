@@ -1,0 +1,3 @@
+[submodule "hal"]
+	path = submodules/hal
+	url = https://github.com/stevenroose/hal

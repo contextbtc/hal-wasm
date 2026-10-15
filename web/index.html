@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hal in the browser</title>
+<style>
+	:root {
+		--bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --border: #dcdcd6;
+		--panel: #ffffff; --accent: #c4600b; --err: #b3261e;
+		--mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--bg: #161614; --fg: #e9e9e4; --muted: #9a9a93; --border: #33332f;
+			--panel: #1e1e1b; --accent: #f0a04b; --err: #f2b8b5;
+		}
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; background: var(--bg); color: var(--fg);
+		font: 15px/1.5 system-ui, sans-serif;
+	}
+	main { max-width: 880px; margin: 0 auto; padding: 32px 16px; }
+	h1 { font-size: 1.4rem; margin: 0 0 4px; }
+	p.lede { color: var(--muted); margin: 0 0 24px; }
+	label { display: block; font-size: .85rem; color: var(--muted); margin: 16px 0 6px; }
+	.cmd { display: flex; gap: 8px; align-items: stretch; }
+	.prompt { font-family: var(--mono); align-self: center; color: var(--muted); }
+	input, textarea {
+		width: 100%; font: 14px var(--mono); color: var(--fg); background: var(--panel);
+		border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+	}
+	textarea { min-height: 64px; resize: vertical; }
+	input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+	button {
+		font: inherit; cursor: pointer; border-radius: 6px; padding: 8px 16px;
+		border: 1px solid var(--accent); background: var(--accent); color: var(--bg);
+	}
+	button:disabled { opacity: .5; cursor: wait; }
+	.examples { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+	.examples button {
+		background: transparent; color: var(--fg); border-color: var(--border);
+		font: 12px var(--mono); padding: 4px 8px;
+	}
+	.status { font-size: .85rem; color: var(--muted); margin: 20px 0 6px; }
+	.status.fail { color: var(--err); }
+	pre {
+		margin: 0; padding: 12px; min-height: 120px; overflow: auto;
+		background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+		font: 13px/1.45 var(--mono); white-space: pre-wrap; word-break: break-all;
+	}
+	pre.stderr { color: var(--err); min-height: 0; margin-top: 8px; }
+	pre.stderr:empty { display: none; }
+	footer { margin-top: 24px; font-size: .8rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+	<h1>hal, the Bitcoin companion</h1>
+	<p class="lede">The hal CLI compiled to WebAssembly. Commands run entirely in your browser; nothing is sent anywhere.</p>
+
+	<form id="form">
+		<label for="cmd">Command</label>
+		<div class="cmd">
+			<span class="prompt">hal</span>
+			<input id="cmd" autocomplete="off" spellcheck="false" placeholder="tx decode 0100…">
+			<button id="run" type="submit">Run</button>
+		</div>
+		<div class="examples" id="examples"></div>
+
+		<label for="stdin">stdin (optional; used when a command's input argument is omitted)</label>
+		<textarea id="stdin" spellcheck="false"></textarea>
+	</form>
+
+	<div class="status" id="status">Loading hal.wasm…</div>
+	<pre id="stdout"></pre>
+	<pre id="stderr" class="stderr"></pre>
+
+	<footer>External <code>hal-*</code> subcommands and file paths are not available in the browser.</footer>
+</main>
+
+<script type="module">
+import { runHal, splitArgs } from "./hal.js";
+
+const GENESIS_TX = "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
+const EXAMPLES = [
+	"--help",
+	"tx decode " + GENESIS_TX,
+	"address inspect bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+	"key generate",
+	"bip39 generate",
+	"script decode 76a914751e76e8199196d454941c45d1b3a323f1433bd688ac",
+	"hash sha256 616263",
+	"random bytes 32",
+];
+
+const $ = (id) => document.getElementById(id);
+const form = $("form"), cmd = $("cmd"), stdin = $("stdin"), runBtn = $("run");
+const status = $("status"), out = $("stdout"), err = $("stderr");
+
+for (const ex of EXAMPLES) {
+	const b = document.createElement("button");
+	b.type = "button";
+	b.textContent = ex.length > 40 ? ex.slice(0, 37) + "…" : ex;
+	b.title = ex;
+	b.onclick = () => { cmd.value = ex; form.requestSubmit(); };
+	$("examples").append(b);
+}
+
+function pretty(text) {
+	try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
+}
+
+form.addEventListener("submit", async (e) => {
+	e.preventDefault();
+	let args;
+	try {
+		args = splitArgs(cmd.value.trim().replace(/^hal\s+/, ""));
+	} catch (ex) {
+		status.textContent = String(ex.message);
+		status.className = "status fail";
+		return;
+	}
+	runBtn.disabled = true;
+	status.textContent = "Running…";
+	status.className = "status";
+	const t0 = performance.now();
+	try {
+		const r = await runHal(args, stdin.value);
+		const ms = Math.round(performance.now() - t0);
+		status.textContent = `exit ${r.code} · ${ms} ms`;
+		status.className = r.code === 0 ? "status" : "status fail";
+		out.textContent = pretty(r.stdout);
+		err.textContent = r.stderr;
+	} catch (ex) {
+		status.textContent = "Failed to run hal.wasm: " + ex;
+		status.className = "status fail";
+	} finally {
+		runBtn.disabled = false;
+	}
+});
+
+runHal(["--version"]).then(
+	(r) => { status.textContent = `Ready · ${r.stdout.trim()}`; },
+	(ex) => {
+		status.textContent = "Could not load hal.wasm (run build.sh and serve this folder over HTTP): " + ex;
+		status.className = "status fail";
+	},
+);
+</script>
+</body>
+</html>
